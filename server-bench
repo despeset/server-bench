@@ -1,0 +1,73 @@
+#!/bin/bash
+cleanup(){
+	kill 0
+	tput cnorm
+	sed -i '' -e '$ d' $REPORT_PATH/mem.log
+}
+trap "cleanup" SIGINT SIGTERM EXIT
+
+REPORT_PATH=${1-reports/`date +"%D-%T"`}
+tput setab 0
+tput clear
+tput civis
+
+if [ -d "$REPORT_PATH" ]; then
+	tell "\nAborting! Cannot write report to '$REPORT_PATH', it already exists." 1
+	exit -1
+fi
+
+mkdir -p $REPORT_PATH
+touch $REPORT_PATH/app.log $REPORT_PATH/mem.log $REPORT_PATH/curl.log
+
+tell(){
+	tput setaf $2
+	printf "$1"
+	tput setaf 7
+}
+
+tell "Saving report in $REPORT_PATH..." 3
+tell "\nStarting server." 2
+
+
+echo "0 connected" > $REPORT_PATH/app.log	 # initialize log
+julia app.jl >> $REPORT_PATH/app.log 2>&1 &	 # boot server
+
+tell "Starting mem tracker." 6
+
+while true ; do
+	# write stats to file
+	echo "$(ps -p $(pgrep julia) -o %cpu=,rss=,vsz=) $(tail -1 $REPORT_PATH/app.log | awk '{ print $1 }')" >> $REPORT_PATH/mem.log
+	# plot stats
+	gnuplot -e "PATH=\"$REPORT_PATH\"" ./gnuplot.script
+	# wait 1 second
+	sleep 0.1
+done &
+
+while [ `tail -1 $REPORT_PATH/app.log | awk '{ print $1 }'` != "Listening" ]; do
+	sleep 1
+done
+
+tell "Starting siege." 3
+siege -b -t 10M -c 100  http://localhost:8000/hello/world
+
+# tell "Starting slam." 3
+# slam -b -t 60 -c 10  http://localhost:8000/hello/world | color 35
+
+# tell "Spamming with curl" 3
+# oi=0
+# while [ -n "$(pgrep julia)" ]; do
+# 	# tput el1
+# 	# tput cr
+# 	printf "\n"
+# 	printf "$(($i + $oi * 50)) |            "
+# 	for i in {1..50}; do
+# 		curl http://localhost:8000/hello/world > $REPORT_PATH/curl.log 2>&1 &
+# 		if [ $i -gt 9 ]; then printf "\b"; fi
+# 		if [ $i -gt 99 ]; then printf "\b\b"; fi
+# 		tell "\b\b\b\b\b\b\b\b\b\b\b\b.| $i requests" 3
+# 	done
+# 	oi=`expr $oi + 1`
+# 	# sleep 1s
+# done
+
+tell "Server fault." 1
