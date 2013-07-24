@@ -1,51 +1,118 @@
-#!/bin/bash
+#!/usr/bin/env bash
+_SCRIPT="$(basename ${BASH_SOURCE[0]})"
+_DIR="$(dirname $_SCRIPT)"
+REPORT_PATH=$_DIR/reports/`date +"%D-%T"`
+SERVER_CMD=julia\ $_DIR/app.jl
+STAT_SAMPLE_RATE=0.1
+
+echo $_SCRIPT
+echo $_DIR
+echo $REPORT_PATH
+echo $SERVER_CMD
+echo $STAT_SAMPLE_RATE
+
+
+usage(){
+cat <<'EOT'
+usage: server-bench [--server] [--report] [--fidelity]
+
+Options:
+	--server	-s	command to start server
+	--report	-r	path to output report
+	--fidelity	-f	rate (in seconds) to sample mem / cpu
+EOT
+}
+
+echo "A"
+
+set -- `getopt -n$0 -u -a --longoptions "server: report: fidelity: help" "s:r:f:" "$@"`
+# $# is the number of arguments
+while [ $# -gt 0 ]; do
+	case "$1" in
+		-s|--server) SERVER_CMD="$2"; shift;;
+		-r|--report) REPORT_PATH="$2"; shift;;
+		-f|--fidelity) STAT_SAMPLE_RATE=$2; shift;;
+		-h| --help) usage; exit;;
+		--) shift; break;;
+		*) break;;
+	esac
+	shift
+done
+
+echo "B"
+echo $SERVER_CMD
+echo $REPORT_PATH
+echo $STAT_SAMPLE_RATE
+
+PROCESS_NAME=$(echo "$SERVER_CMD" | cut -d\  -f 1)
+echo $PROCESS_NAME
+SERVER_LOG=$REPORT_PATH/$(echo "$PROCESS_NAME")_server.log
+echo $SERVER_LOG
+STATS_LOG=$REPORT_PATH/$(echo "$PROCESS_NAME")_stats.log
+echo $STATS_LOG
+
+echo "C"
+
+# kill child processes on exit
 cleanup(){
 	kill 0
 	tput cnorm
-	sed -i '' -e '$ d' $REPORT_PATH/mem.log
+	sed -i '' -e '$ d' $STATS_LOG
 }
 trap "cleanup" SIGINT SIGTERM EXIT
 
-REPORT_PATH=${1-reports/`date +"%D-%T"`}
+# colors!
 tput setab 0
 tput clear
 tput civis
-
-if [ -d "$REPORT_PATH" ]; then
-	tell "\nAborting! Cannot write report to '$REPORT_PATH', it already exists." 1
-	exit -1
-fi
-
-mkdir -p $REPORT_PATH
-touch $REPORT_PATH/app.log $REPORT_PATH/mem.log $REPORT_PATH/curl.log
-
 tell(){
 	tput setaf $2
 	printf "$1"
 	tput setaf 7
 }
 
+# verify new report path
+if [ -d "$REPORT_PATH" ]; then
+	tell "\nAborting! Cannot write report to '$REPORT_PATH', it already exists." 1
+	exit -1
+fi
+
+# ensure uptimems utility
+if [ ! -e $_DIR/bin/uptimems ]; then
+	tell "Making uptimems..." 4
+	make $_DIR/lib/uptimems
+	if [ ! -d $_DIR/bin ]; then 
+		mkdir $_DIR/bin 
+	fi
+	mv $_DIR/lib/uptimems $_DIR/bin/uptimems	
+fi
+
+# setup report
+mkdir -p $REPORT_PATH
+touch $SERVER_LOG $STATS_LOG $REPORT_PATH/curl.log
+
 tell "Saving report in $REPORT_PATH..." 3
 tell "\nStarting server." 2
 
 
-echo "0 connected" > $REPORT_PATH/app.log	 # initialize log
-julia app.jl >> $REPORT_PATH/app.log 2>&1 &	 # boot server
+echo "0 connected" > $SERVER_LOG	 # initialize log
+$SERVER_CMD >> $SERVER_LOG 2>&1 &	 # boot server
+
+while [ `tail -1 $SERVER_LOG | awk '{ print $1 }'` != "Listening" ]; do
+	sleep 1
+done
 
 tell "Starting mem tracker." 6
 
-while true ; do
+while [ -n "$(pgrep julia)" ] ; do
 	# write stats to file
-	echo "$(ps -p $(pgrep julia) -o %cpu=,rss=,vsz=) $(tail -1 $REPORT_PATH/app.log | awk '{ print $1 }')" >> $REPORT_PATH/mem.log
+	# echo "$(ps -o %cpu=,rss=,vsz= -p $(ps -A | awk "/${SERVER_CMD}/" | cut -d ' ' -f 1 )) $(tail -1 $SERVER_LOG | awk '{ print $1 }')" >> $STATS_LOG
+	echo "$($_DIR/bin/uptimems) $(ps -o %cpu=,rss=,vsz= -p $(pgrep julia)) $(tail -1 $SERVER_LOG | awk '{ print $1 }' | head -1 )" >> $STATS_LOG
 	# plot stats
-	gnuplot -e "PATH=\"$REPORT_PATH\"" ./gnuplot.script
+	gnuplot -e "PATH=\"$REPORT_PATH\";PROCESS_NAME=\"$PROCESS_NAME\"" ./gnuplot.script
 	# wait 1 second
-	sleep 0.1
+	sleep $STAT_SAMPLE_RATE
 done &
-
-while [ `tail -1 $REPORT_PATH/app.log | awk '{ print $1 }'` != "Listening" ]; do
-	sleep 1
-done
 
 tell "Starting siege." 3
 siege -b -t 10M -c 100  http://localhost:8000/hello/world

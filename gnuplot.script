@@ -1,5 +1,5 @@
 set term png small size 800,600
-set output PATH."/mem-graph.png"
+set output PATH."/".PROCESS_NAME."mem-graph.png"
 
 set ylabel "RSS"
 set y2label "REQS"
@@ -11,10 +11,10 @@ set yrange [-1:*]
 set y2range [-1:*]
 set xrange [-1:*]
 
-plot PATH."/mem.log" using 2 with lines axes x1y1 title "RSS", \
-     PATH."/mem.log" using 4 with lines axes x1y2 title "REQS"
+plot PATH."/".PROCESS_NAME."_stats.log" using 3 with lines axes x1y1 title "RSS", \
+     PATH."/".PROCESS_NAME."_stats.log" using 5 with lines axes x1y2 title "REQS"
 
-set output PATH."/cpu-graph.png"
+set output PATH."/".PROCESS_NAME."cpu-graph.png"
 
 set ylabel "CPU"
 set y2label "REQS"
@@ -26,5 +26,5 @@ set yrange [-1:*]
 set y2range [-1:*]
 set xrange [-1:*]
 
-plot PATH."/mem.log" using 1 with lines axes x1y1 title "CPU", \
-     PATH."/mem.log" using 4 with lines axes x1y2 title "REQS"
+plot PATH."/".PROCESS_NAME."_stats.log" using 2 with lines axes x1y1 title "CPU", \
+     PATH."/".PROCESS_NAME."_stats.log" using 5 with lines axes x1y2 title "REQS"
