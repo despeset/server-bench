@@ -1,15 +1,19 @@
 oi=0
-touch curl.txt
+REPS=200
+echo "" > curl.txt
 while true; do
 	printf "\n"
-	printf "$(($i + $oi * 50)) | "
-	for i in {1..50}; do
+	let TOTAL=$oi*$REPS
+	printf "$TOTAL | "
+	for i in $( seq 1 $REPS); do
 		curl http://localhost:8000/hello/world 2>> ./curl.txt &
 		printf "."
 	done
-	sleep 1
-	if [ $(tail -50 ./curl.txt | grep -c "7") > 30 ]; then
-		printf "Too many connection failures, pausing for 10 seconds."
+	sleep 0.8
+	FAILURES=$(tail -50 ./curl.txt | grep -c "7")
+	if [ $FAILURES -gt 30 ]; then
+		printf "Too many connection failures ($FAILURES/50), pausing for 10 seconds."
 		sleep 10
 	fi
+	let oi=$oi+1
 done
